@@ -1,0 +1,248 @@
+---
+title: "Michigan Maps"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: column
+    vertical_layout: scroll
+    theme:
+      primary: "#003057"
+      secondary: "#003057"
+      # bootswatch: "flatly"
+    # logo: "MEA_Primary_White_favicon.png"
+    source_code: embed
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+# bslib::bs_themer() // Toggles interactive themer window
+```
+
+
+
+```{r Library}
+
+library(tidyverse)
+library(readxl)
+library(flexdashboard)
+library(plotly)
+library(DT)
+library(sf)
+library(leaflet)
+library(leaflet.extras)
+library(htmlwidgets)
+library(mapview)
+library(leafem)
+library(RColorBrewer)
+library(colorspace)
+library(here)
+library(TannersTools)
+
+```
+
+```{r Load Data, include = FALSE}
+
+district.shapefile <- tt_import_geo_district()
+isd.shapefile <- tt_import_geo_isd()
+
+county <- tt_import_geo_county()
+
+mi.house <- 
+  tt_import_geo_mihouse() %>% 
+  mutate(map.popup.label = paste("<b>", "Rep. ", legislator, ", #", label, "</b>", "<br/>", 
+                                 "<b>", "Party: ", "</b>", party,"<br/>",
+                                 "<b>", "Website: ", "</b>", "<a href = \"", url, "\">", "click here", "</a>","<br/>"),
+         label = paste0(legislator, ", #", label))
+
+
+
+mi.senate <- 
+  tt_import_geo_misenate() %>% 
+  mutate(map.popup.label = paste("<b>", "Rep. ", legislator, ", #", label, "</b>", "<br/>", 
+                                 "<b>", "Party: ", "</b>", party,"<br/>",
+                                 "<b>", "Website: ", "</b>", "<a href = \"", url, "\">", "click here", "</a>","<br/>"),
+         label = paste0(legislator, ", #", label))
+
+
+
+district.map.data <- district.shapefile %>% 
+  left_join(district_id %>% mutate(dnum = as.numeric(dcode)) %>% select(-dcode, -district.label), by = "dnum") %>% 
+  mutate(map.popup.labels = paste("<b>", dname, "</b>", "<br/>", "<br/>",
+                                  "<b>", "DCODE: ", "</b>", dcode, "<br/>",
+                                  "<b>", "ISD: ", "</b>", isd.name,"<br/>",
+                                  "<b>", "County: ", "</b>", county.name,"<br/>",
+                                  "<b>", "NCES Code: ", "</b>", nces.code,"<br/>",
+                                  "<b>", "Locale: ", "</b>",locale.name,"<br/>",
+                                  "<b>", "Square Miles: ", "</b>", sqmiles),
+         random.number = runif(n(), 1, 1000000))
+
+
+school.buildings <- 
+  tt_import_eem_school_buildings() %>% 
+  filter(entity.status == "Open-Active") %>% 
+  mutate(school.popup.label = paste("<b>", entity.official.name, "</b>", "<br/>", "<br/>",
+                                  "<b>", "District Name: ", "</b>", dname, "<br/>",
+                                  "<b>", "Entity Type: ", "</b>", entity.type.category.name,"<br/>",
+                                  "<b>", "School Emphasis: ", "</b>", school.emphasis,"<br/>",
+                                  "<b>", "Address: ", "</b>", geocode.address))
+
+
+```
+
+
+```{r colors, include = FALSE}
+
+district.map.color <- colorFactor("Set3", district.map.data$random.number) 
+isd.map.color <- colorFactor("Set3", isd.shapefile$ISD) 
+mihouse.map.color <- colorFactor(palette = c("blue", "red"),
+                                 domain = mi.house$party)
+misenate.map.color<- colorFactor(palette = c("blue", "red"),
+                                 domain = mi.senate$party)
+
+school.marker.color <- colorFactor(palette = c("#53BCE6", "#003057", "#D1608E", "#C2002F", "#F6BA47"),
+                               domain = school.buildings$entity.type.category.name)
+
+
+highlight.color <- "black"
+
+```
+
+
+# MEA Map
+```{r Map - MEA}
+
+
+mea.map <- 
+  leaflet( options = leafletOptions(zoomSnap = .5, zoomDelta = .5, 
+                                    sizingPolicy = leafletSizingPolicy(defaultWidth = "80%")),
+           ) %>% 
+  addTiles(group = "Base Map") %>% 
+
+  addLayersControl(
+    position = "topleft",
+    overlayGroups = c("Base Map", "Districts Outline", "District Color", "ISD", "School Buildings", "County", "MI House", "MI Senate"),
+    options = layersControlOptions(collapsed = TRUE)) %>%
+  
+  addSearchFeatures(targetGroups =  c("Base Map", "Districts Outline", "ISD", "County", "MI House", "MI Senate"), searchFeaturesOptions(zoom = 10)) %>% 
+  
+  addResetMapButton() %>%
+  
+  addPolygons(data = district.map.data,
+              highlightOptions = highlightOptions(color = highlight.color, 
+                                                  fillColor = "black",
+                                                  opacity = .5, 
+                                                  weight = 4),
+              smoothFactor = .5,
+              color = "black",
+              weight = 2,
+              fillOpacity = 0,
+              label = ~district.label,
+              popup = ~map.popup.labels,
+              group = "Districts Outline") %>% 
+ 
+  
+  addPolygons(data = district.map.data,
+              highlightOptions = highlightOptions(color = highlight.color, 
+                                                  fillOpacity = 1, 
+                                                  weight = 0),
+              smoothFactor = .5,
+              color = ~district.map.color(random.number),
+              weight = 0,
+              fillOpacity = .5,
+              fillColor = ~district.map.color(random.number),
+              label = ~district.label,
+              popup = ~map.popup.labels,
+              group = "District Color") %>% 
+  
+
+addPolygons(data = isd.shapefile,
+            highlightOptions = highlightOptions(color = highlight.color, 
+                                                fillColor = "black", 
+                                                weight = 4),
+            smoothFactor = .5,
+            color = "gray",
+            weight = 2,
+            fillOpacity = .5,
+            fillColor = ~isd.map.color(icode),
+            label = ~isd.label,
+            group = "ISD") %>% 
+  
+  addPolygons(data = county,
+              highlightOptions = highlightOptions(color = highlight.color, 
+                                                  fillColor = "black", 
+                                                  weight = 4),
+              smoothFactor = .5,
+              color = "black",
+              weight = 2,
+              fillOpacity = 0,
+              label = ~label,
+              group = "County") %>% 
+  
+  addPolygons(data = mi.house,
+              highlightOptions = highlightOptions(color = highlight.color, 
+                                                  fillColor = "black", 
+                                                  weight = 4),
+              smoothFactor = .5,
+              color = "white",
+              weight = 2,
+              fillOpacity = .5,
+              fillColor = ~mihouse.map.color(party),
+              popup = ~map.popup.label,
+              label = ~label,
+              group = "MI House") %>% 
+  
+  addPolygons(data = mi.senate,
+              highlightOptions = highlightOptions(color = highlight.color, 
+                                                  fillColor = "black", 
+                                                  weight = 4),
+              smoothFactor = .5,
+              color = "white",
+              weight = 2,
+              fillOpacity = .5,
+              popup = ~map.popup.label,
+              fillColor = ~misenate.map.color(party),
+              label = ~label,
+              group = "MI Senate") %>% 
+  
+  # addMarkers(data = school.buildings,
+  #            lat = ~lat,
+  #            lng = ~long,
+  #            # color = ~school.marker.color(entity.type.category.name),
+  #            popup = ~school.popup.label,
+  #            label = ~entity.official.name,
+  # 
+  #            clusterOptions = markerClusterOptions(spiderfyDistanceMultiplier=5)) %>% 
+  
+  addCircleMarkers(data = school.buildings,
+             lat = ~lat,
+             lng = ~long,
+             radius = 10,
+             color = ~school.marker.color(entity.type.category.name),
+             popup = ~school.popup.label,
+             label = ~entity.official.name,
+             group = "School Buildings",
+                          clusterOptions = markerClusterOptions()) %>%
+  
+
+  addLegend(data = school.buildings,
+            position = "bottomleft",
+            pal = school.marker.color,
+            values = ~entity.type.category.name,
+            group = "School Buildings") %>% 
+  
+  hideGroup(c("ISD", "County", "MI House", "MI Senate", "School Buildings"))
+
+
+mea.map
+
+```
+
+
+
+# Source
+
+Map created by Tanner Delpier
+
+
+Last updated 10/17/2023
